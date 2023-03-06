@@ -1,0 +1,181 @@
+/****************************
+* Export an AdWords report to a Google Sheet and pivot on unique entities
+* Version 1.0
+* 
+* Created By: Frederick Vallaeys 
+* for FreeAdWordsScripts.com and Optmyzr.com
+* to support advanced use cases of the Optmyzr Rule Engine available at www.optmyzr.com
+*
+* v20211004: updated to reporting v201809
+****************************/
+
+
+// Instructions: 
+// You can edit the following settings
+// - attributes: these are the AdWords reporting attributes. You will get a single spreadsheet row per unique combination of attributes
+// - segments: these are the AdWords reporting segments. The values of each segment will be joined with metrics and create 1 column for each combination
+// - metrics: the AdWords reporting metrics to include.
+// - sourceReport: the report type from Google. See the link below for more information
+// - spreadsheetUrl: the Url of the Google spreadsheet that this script will update.
+// - tabName: the name of the sheet (tab) in the spreadsheet that should be updated.
+// - reportVersion: the version of the AdWords API reports you’re using. The data available in the Ads API changes periodically so this ensures our script talks to the right version of AdWords.
+//
+// Here is the list of acceptable attributes, segments and metrics for the keywords performance report: 
+//          https://developers.google.com/adwords/api/docs/appendix/reports/keywords-performance-report
+//      refer to this link to find similar pages for other reports
+
+var QUERIES = [{'attributes' : 'AdGroupId, Id, Criteria',
+                'segments' : 'ConversionTypeName,DayOfWeek',
+                'metrics' : 'Conversions,AllConversions',
+                'sourceReport' : 'KEYWORDS_PERFORMANCE_REPORT',
+                'dateRange' : 'LAST_30_DAYS',
+                'spreadsheetUrl' : 'ADD_YOUR_SPREADSHEET_URL',
+                'tabName' : 'ADD_THE_SPREADSHEET_TAB_NAME',
+                'reportVersion' : 'v201809'
+               }
+               
+              ];
+
+var USERDELIMITER = ".";
+
+
+function main() {
+  for(var i in QUERIES) {
+    var queryObject = QUERIES[i];
+    var attributes = queryObject.attributes.replace(/\s/g, '');
+    var attributeArray = attributes.split(",");
+    var segments = queryObject.segments.replace(/\s/g, '');
+    var segmentArray = segments.split(",");
+    var metrics = queryObject.metrics.replace(/\s/g, '');
+    var metricArray = metrics.split(",");
+    var sourceReport = queryObject.sourceReport;
+    var dateRange = queryObject.dateRange;
+    var spreadsheetUrl = queryObject.spreadsheetUrl;
+    var tabName = queryObject.tabName;
+    var reportVersion = queryObject.reportVersion;
+    //Logger.log(spreadsheetUrl + " " + query);
+    var spreadsheet = SpreadsheetApp.openByUrl(spreadsheetUrl);
+    var sheet = spreadsheet.getSheetByName(tabName);
+    
+    var delimiter = "../|/..";
+    var map = new Array();
+    var segmentKeyList = new Array();
+    var query = "SELECT " + attributes + "," + segments + "," + metrics + " FROM " + sourceReport + " DURING " + dateRange;
+    
+    var report = AdWordsApp.report(query, {apiVersion: reportVersion});
+    var rows = report.rows();
+    while(rows.hasNext()) {
+      var row = rows.next();
+      var pivotKey = "";
+      	
+      for(var i = 0; i < attributeArray.length; i++) {
+        var key = attributeArray[i];
+        //Logger.log(key);
+        var val = row[key];
+        //Logger.log(" " + val);
+        pivotKey += val + delimiter;
+      }
+      //Logger.log(pivotKey);
+      if(!map[pivotKey]) {
+        map[pivotKey] = new Array();
+      }	
+      
+      
+      for(var i = 0; i < segmentArray.length; i++) {
+        var segmentKey = "";	
+        var key = segmentArray[i];
+          //Logger.log(key);
+        var val = row[key];
+        //Logger.log(" " + val);
+        for(var j = 0; j < metricArray.length; j++) {
+          var metricName = metricArray[j];
+          var metricValue = parseFloat(row[metricName]);
+          segmentKey = val + delimiter + metricName;
+          //Logger.log(" " + segmentKey);
+          
+          segmentKeyList[segmentKey] = 1;
+          if(!map[pivotKey][segmentKey]) {
+            map[pivotKey][segmentKey] = metricValue;
+          } else {
+            map[pivotKey][segmentKey] += metricValue;
+          }
+          //Logger.log("   " + metricValue);
+          
+        }
+      }
+      
+    }
+    
+    
+    var dataToWrite = new Array();
+    
+    var headerRow = attributeArray;
+    for(var segmentKey in segmentKeyList){
+      var cleanSegmentName = segmentKey.replace(delimiter,USERDELIMITER);
+      headerRow.push(cleanSegmentName);
+      //Logger.log(cleanSegmentName);
+    }
+    //Logger.log(headerRow);
+    
+    //dataToWrite.push(headerRow);
+    
+    for(pivotKey in map) {
+      var rowToWrite = new Array();
+      var row = map[pivotKey];
+      var pivotParts = pivotKey.split(delimiter);
+      var lastElement = pivotParts.pop();
+      //Logger.log(pivotParts);
+      var rowToWrite = rowToWrite.concat(pivotParts);
+      for(segmentKey in segmentKeyList) {
+        
+        var val = map[pivotKey][segmentKey];
+        if(!val) val = "";
+        //Logger.log(pivotKey);
+      	//Logger.log(" " + segmentKey + " : " + val);
+      	rowToWrite.push(val);
+      }
+      //Logger.log(rowToWrite);
+      dataToWrite.push(rowToWrite);
+    }
+    //Logger.log("");
+    //Logger.log(dataToWrite);
+    var amountOfDataWritten = writeDataToGoogleSheet(dataToWrite, sheet, headerRow, 1);
+    if(amountOfDataWritten) Logger.log(amountOfDataWritten + " rows of data written to " + spreadsheetUrl);
+    
+  }
+  
+  // FUNCTION: writeDataToGoogleSheet
+	function writeDataToGoogleSheet(data, sheet, columnsUsedArray, overwrite) {
+  
+  
+  
+      // Write Header
+      if(overwrite) {
+        sheet.clear();
+        var toWrite = new Array();
+        toWrite.push(columnsUsedArray);
+        //Logger.log (toWrite);
+        var range = sheet.getRange(1, 1, toWrite.length, toWrite[0].length);
+        range.setValues(toWrite);
+      }
+      
+      //var dataAdded = 1;
+      if(!overwrite) {
+        var startRow = sheet.getLastRow();
+        var startColumn = 0; //sheet.getLastColumn();
+      } else {
+        var startRow = 1; // accounts for 1 row of headers
+        var startColumn = 0;
+      }
+      var maxRows = sheet.getMaxRows();
+      var maxColumns = sheet.getMaxColumns();
+      //Logger.log("startRow: " + startRow + " startColumn: " + startColumn + " dataToWrite.length: " + data.length + " dataToWrite[0].length: " + data[0].length);
+      var range = sheet.getRange(startRow+1, startColumn+1, data.length, data[0].length);
+      range.setValues(data);
+      var amountWritten = data.length;
+      return(amountWritten); 
+      
+      
+    } 
+  
+}
