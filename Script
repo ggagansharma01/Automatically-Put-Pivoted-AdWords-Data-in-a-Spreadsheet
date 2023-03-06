@@ -1,13 +1,3 @@
-/****************************
-* Export an AdWords report to a Google Sheet and pivot on unique entities
-* Version 1.0
-* 
-* Created By: Frederick Vallaeys 
-* for FreeAdWordsScripts.com and Optmyzr.com
-* to support advanced use cases of the Optmyzr Rule Engine available at www.optmyzr.com
-*
-* v20211004: updated to reporting v201809
-****************************/
 
 
 // Instructions: 
